@@ -348,6 +348,11 @@
             "assert", "pthreadMutexType"
           ]
         },
+        "value_sens": {
+          "title": "ana.value_sens",
+          "type": "boolean",
+          "default": false
+        },
         "path_sens": {
           "title": "ana.path_sens",
           "description": "List of path-sensitive analyses",
