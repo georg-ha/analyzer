@@ -606,6 +606,376 @@ struct
   let event (man:(D.t,G.t,C.t,V.t) man) (e:Events.t) (oman:(D.t,G.t,C.t,V.t) man):D.t = lift_fun man D.lift S.event ((|>) (conv oman) % (|>) e) `Bot
 end
 
+(* Defined similarly to IntDomain.BISet but with top and other helper functions *)
+module IntTopSet = 
+struct
+  module IntTopName: SetDomain.ToppedSetNames = 
+  struct
+    let topname = "IntTop"
+  end
+
+  include SetDomain.ToppedSet (IntOps.BigIntOps) (IntTopName)
+
+
+  let get_set man v = 
+    let of_opt_list = function
+      | None -> bot ()
+      | Some l -> of_list l
+    in
+    match man.ask (Queries.EvalInt (Lval((Var v), NoOffset))) with 
+    | `Bot -> bot ()
+    | `Top -> top ()
+    | `Lifted(x) -> of_opt_list @@ IntDomain.IntDomTuple.to_incl_list x
+end
+
+module Variables =
+struct
+  include CilType.Varinfo
+  let show x =
+    if RichVarinfo.BiVarinfoMap.Collection.mem_varinfo x then
+      let description = RichVarinfo.BiVarinfoMap.Collection.describe_varinfo x in
+      "(" ^ x.vname ^ ", " ^ description ^ ")"
+    else x.vname
+  let pretty () x = Pretty.text (show x)
+  type group = Global | Local | Parameter | Temp [@@deriving ord, show { with_path = false }]
+  let to_group = function
+    | x when x.vglob -> Global
+    | x when x.vdecl.line = -1 -> Temp
+    | x when Cilfacade.is_varinfo_formal x -> Parameter
+    | _ -> Local
+  let name () = "variables"
+  let printXml f x = BatPrintf.fprintf f "<value>\n<data>\n%s\n</data>\n</value>\n" (XmlUtil.escape (show x))
+end
+
+module EnumVarMap = MapDomain.MapBot (Variables) (IntTopSet)
+
+
+module ValueSensitive2 (Spec: Spec) 
+  : Spec
+    with module G = Spec.G
+     and module C = Spec.C
+     and module V = Spec.V
+= struct
+  module G = Spec.G
+  module C = Spec.C
+  module V = Spec.V
+  module P = UnitP
+
+
+  module D = struct
+    module E = Lattice.Prod (EnumVarMap) (Spec.D)
+    module J = SetDomain.Joined (E)
+
+    module R = struct
+      include EnumVarMap
+
+      type elt = E.t
+
+      let of_elt ((m, _): elt) = m
+    end
+
+    include DisjointDomain.ProjectiveSet (E) (J) (R)
+
+    let name () = "ValueSensitive"
+
+    let printXml f x =
+      BatPrintf.fprintf f "<value>\n<set>\n";
+      iter (fun e ->
+          BatPrintf.fprintf f "<value>\n";
+          E.printXml f e;
+          BatPrintf.fprintf f "</value>\n";
+        ) x;
+      BatPrintf.fprintf f "</set>\n</value>\n"
+  end
+
+  let name () = "ValueSensitive("^Spec.name ()^")"
+
+  let rec is_enum_type = function
+    | TEnum _ -> true
+    | TNamed( x, _ )-> is_enum_type x.ttype
+    | _ -> false
+
+  let fundec_of_node = function
+    | MyCFG.Statement s -> Cilfacade.find_stmt_fundec s
+    | MyCFG.Function f | MyCFG.FunctionEntry f -> f
+
+  let get_enum_vars man = 
+    let f_dec = fundec_of_node man.node in
+    List.filter (fun x -> is_enum_type x.vtype) (f_dec.sformals @ f_dec.slocals)
+
+
+  let get_mappings man = 
+    let aux = get_enum_vars man
+      |> List.map (fun v -> v, (IntTopSet.get_set man v))
+      |> EnumVarMap.add_list
+    in aux (EnumVarMap.empty ())
+
+
+
+  let conv man (s, x) =
+    let rec man' = { man with ask   = (fun (type a) (q: a Queries.t) -> Spec.query man' q)
+                            ; local = x
+                            ; split = (man.split % (fun x -> D.singleton (s, x))) }
+    in
+    man'
+
+  type marshal = Spec.marshal
+  let init = Spec.init
+  let finalize = Spec.finalize
+
+  let startcontext () = Spec.startcontext ()
+  let startstate v = assert false
+  let morphstate v d = assert false
+  let exitstate v = assert false
+  let context man fd l = assert false
+
+  let query man (type a) (q: a Queries.t) : a Queries.result = assert false
+  let assign man l e    = assert false
+  let vdecl man v       = assert false
+  let body   man f      = assert false
+  let return man e f    = assert false
+  let branch man e tv   = assert false
+  let asm man           = assert false
+  let skip man          = assert false
+  let special man l f a = assert false
+  let sync man reason   = assert false
+
+  let event man e oman = assert false
+
+  let threadenter man ~multiple lval f args = assert false
+
+  let threadspawn man ~multiple lval f args fman = assert false
+
+  let enter man l f a = assert false
+  let paths_as_set man = assert false
+
+  let combine_env man l fe f a fc d f_ask = assert false
+
+  let combine_assign man l fe f a fc d f_ask = assert false
+end
+
+
+module ValueSensitive (Spec: Spec) 
+  : Spec
+    with module G = Spec.G
+     and module C = Spec.C
+     and module V = Spec.V
+= struct
+  module G = Spec.G
+  module C = Spec.C
+  module V = Spec.V
+  module P = UnitP
+
+  let targetvar: varinfo option ref = ref None
+
+  module D = struct
+    module E = Lattice.Prod (IntTopSet) (Spec.D)
+
+    module R = struct
+      include IntTopSet
+
+      type elt = E.t
+
+      let of_elt ((s, _): elt) = s
+    end
+
+    module J = SetDomain.Joined (E)
+
+    include DisjointDomain.ProjectiveSet (E) (J) (R)
+
+    let name () = "ValueSensitive (" ^ name () ^ ")"
+
+    let printXml f x =
+      let print_one (s, x) =
+        BatPrintf.fprintf f "\n<path><set>%a</set>%a</path>" 
+          IntTopSet.printXml s 
+          Spec.D.printXml x
+      in
+      iter print_one x
+  end
+
+  let name () = "ValueSensitive("^Spec.name ()^")"
+
+  let is_enum_type v =
+    let rec aux = function
+      | TEnum _ -> true
+      | TNamed( x, _ )-> aux x.ttype
+      | _ ->  false 
+    in aux v.vtype
+
+  let fundec_of_node = function
+    | MyCFG.Statement s -> Cilfacade.find_stmt_fundec s
+    | MyCFG.Function f | MyCFG.FunctionEntry f -> f
+
+  let get_globals ()=  
+    let file = !Cilfacade.current_file in
+    List.filter_map (function
+        | GVar (v, _, _) | GVarDecl (v, _) -> Some v
+        | _ -> None
+      ) file.globals
+
+
+  let get_enum_vars man = 
+    let is_vs_attr (Attr(name, params)) = name = "annotate" && (List.exists 
+                                                                  (fun p -> match p with 
+                                                                     | AStr(n) -> n = "value-sensitive"
+                                                                     | _ -> false) params)
+    in
+    (* TODO Error handling for non enum vars that are annotated *)
+    let is_annotated v = List.exists is_vs_attr v.vattr in
+    let f_dec = fundec_of_node man.node in
+    let vars = f_dec.sformals @ f_dec.slocals @ (get_globals ())in
+    vars
+    |> List.filter is_enum_type
+    |> List.filter is_annotated
+
+
+  let make_tmp typ = Cil.makeVarinfo false "valsens_tmp"  typ
+
+  (* Converts the manager so that it can be used for the Spec transfer functions *)
+  let conv man (s, x) =
+    let rec man' = { man with ask   = (fun (type a) (q: a Queries.t) -> Spec.query man' q)
+                            ; local = x
+                            ; split = (man.split % (fun x -> D.singleton (s, x))) }
+    in
+    man'
+
+  (* TODO Kommentieren *)
+  let equal_except_target man (s1, x1) (s2, x2) = match !targetvar with 
+    | None -> Spec.D.equal x1 x2
+    | Some v -> 
+      let tmp = make_tmp v.vtype in
+      let erase x s =
+        let man' = conv man (s, x) in
+        Spec.assign man' (Var v, NoOffset) (Lval (Var tmp, NoOffset))
+      in
+      Spec.D.equal (erase x1 s1) (erase x2 s2)
+
+  let set_target man = 
+    let enum_vars = get_enum_vars man in 
+    if not (List.is_empty enum_vars) then 
+      targetvar := Some (List.hd enum_vars)
+
+  let get_current_set man = match !targetvar with 
+    | None -> IntTopSet.top ()
+    | Some x -> IntTopSet.get_set man x
+
+  type marshal = Spec.marshal
+  let init = Spec.init
+  let finalize = Spec.finalize
+
+  let startcontext () = Spec.startcontext ()
+  let startstate v = D.singleton (IntTopSet.top (), Spec.startstate v)
+  let morphstate v d = D.map (fun (s, x) -> s, Spec.morphstate v x) d
+  let exitstate v = D.singleton (IntTopSet.top (), Spec.exitstate v)
+
+  let map man f g =
+    (* if Option.is_none !targetvar then (set_target man); *)
+    set_target man;
+    let h (s, x) xs =
+      try 
+        let man' = conv man (s, x) in
+        let x' = g (f man') in
+        let s' = get_current_set (conv man (s, x')) in
+        let new_el = (s', x') in
+
+        let exception Found of (IntTopSet.t * Spec.D.t) in
+        let match_opt =
+          try
+            D.fold (fun old_el _ ->
+                if equal_except_target man new_el old_el then
+                  raise (Found old_el)
+              ) xs ();
+            None
+          with Found old_el ->
+            Some old_el
+        in
+        match match_opt with
+        | Some ((old_s, old_x) as old_el) ->
+          let xs_removed = D.remove old_el xs in
+          let joined_s = IntTopSet.join s' old_s in
+          let joined_x = Spec.D.join x' old_x in
+          D.add (joined_s, joined_x) xs_removed
+        | None ->
+          D.add new_el xs
+
+      with Deadcode -> xs
+    in
+    let d = D.fold h man.local (D.empty ()) in
+    if D.is_bot d then raise Deadcode else d
+
+  let fold' man f g h a =
+    let k (s, x) a =
+      try h a @@ g @@ f @@ conv man (s, x)
+      with Deadcode -> a
+    in
+    D.fold k man.local a
+
+  let context man fd l =
+    if D.cardinal l <> 1 then
+      failwith "ValueSensitive.context must be called with a singleton set."
+    else
+      let (_, x) as el = D.choose l in
+      Spec.context (conv man el) fd x
+
+  let query man (type a) (q: a Queries.t) : a Queries.result =
+    let module Result = (val Queries.Result.lattice q) in
+    fold' man Spec.query identity (fun x f -> Result.join x (f q)) (Result.bot ())
+
+  let assign man l e    = map man Spec.assign  (fun h -> h l e)
+  let vdecl man v       = map man Spec.vdecl   (fun h -> h v)
+  let body   man f      = map man Spec.body    (fun h -> h f)
+  let return man e f    = map man Spec.return  (fun h -> h e f)
+  let branch man e tv   = map man Spec.branch  (fun h -> h e tv)
+  let asm man           = map man Spec.asm     identity
+  let skip man          = map man Spec.skip    identity
+  let special man l f a = map man Spec.special (fun h -> h l f a)
+  let sync man reason   = map man Spec.sync    (fun h -> h reason)
+
+  let event man e oman =
+    let (s, fd1) = D.choose oman.local in
+    map man Spec.event (fun h -> h e (conv oman (s, fd1)))
+
+  let threadenter man ~multiple lval f args =
+    let g xs ys = (List.map (fun y -> D.singleton (IntTopSet.top (), y)) ys) @ xs in
+    fold' man (Spec.threadenter ~multiple) (fun h -> h lval f args) g []
+
+  let threadspawn man ~multiple lval f args fman =
+    let fd1 = D.choose fman.local in
+    map man (Spec.threadspawn ~multiple) (fun h -> h lval f args (conv fman fd1))
+
+  let enter man l f a =
+    let g xs ys = (List.map (fun (x, y) -> D.singleton (IntTopSet.top (), x), D.singleton (IntTopSet.top (), y)) ys) @ xs in
+    fold' man Spec.enter (fun h -> h l f a) g []
+
+  let paths_as_set man =
+    let elems = D.elements man.local in
+    List.map D.singleton elems
+
+  let combine_env man l fe f a fc d f_ask =
+    assert (D.cardinal man.local = 1);
+    let (s, cd) = D.choose man.local in
+    let k (_, x) y =
+      try
+        let r = Spec.combine_env (conv man (s, cd)) l fe f a fc x f_ask in
+        D.add (s, r) y
+      with Deadcode -> y
+    in
+    let d = D.fold k d (D.bot ()) in
+    if D.is_bot d then raise Deadcode else d
+
+  let combine_assign man l fe f a fc d f_ask =
+    assert (D.cardinal man.local = 1);
+    let (s, cd) = D.choose man.local in
+    let k (_, x) y =
+      try
+        let r = Spec.combine_assign (conv man (s, cd)) l fe f a fc x f_ask in
+        D.add (s, r) y
+      with Deadcode -> y
+    in
+    let d = D.fold k d (D.bot ()) in
+    if D.is_bot d then raise Deadcode else d
+end
 
 (** Add path sensitivity to a analysis *)
 module PathSensitive2 (Spec:Spec)
