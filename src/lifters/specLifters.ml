@@ -618,11 +618,16 @@ struct
 
 
   let get_set man v = 
+    let lval_for v =
+      match v.vtype with
+      | TPtr _ -> (Mem (Lval (Var v, NoOffset)), NoOffset)
+      | _ -> (Var v, NoOffset)
+    in
     let of_opt_list = function
       | None -> bot ()
       | Some l -> of_list l
     in
-    match man.ask (Queries.EvalInt (Lval((Var v), NoOffset))) with 
+    match man.ask (Queries.EvalInt (Lval(lval_for v))) with 
     | `Bot -> bot ()
     | `Top -> top ()
     | `Lifted(x) -> of_opt_list @@ IntDomain.IntDomTuple.to_incl_list x
@@ -648,7 +653,6 @@ struct
 end
 
 module EnumVarMap = MapDomain.MapBot (Variables) (IntTopSet)
-
 
 module ValueSensitive2 (Spec: Spec) 
   : Spec
@@ -693,6 +697,7 @@ module ValueSensitive2 (Spec: Spec)
     let rec aux = function
       | TEnum _ -> true
       | TNamed( x, _ )-> aux x.ttype
+      | TPtr(x, _) -> aux x
       | _ ->  false 
     in aux v.vtype
 
@@ -739,12 +744,18 @@ module ValueSensitive2 (Spec: Spec)
   let equal_except_targets man vars (m1, x1) (m2, x2) =
     let erase x m =
       List.fold_left (fun acc_x v ->
-          let tmp = Cil.makeVarinfo false "valsens2_typ" v.vtype in
+          let tmp = Cil.makeVarinfo false "valsens2_typ" 
+              (match v.vtype with TPtr(t,_) | t -> t)
+          in
+          let lval = match v.vtype with
+            | TPtr _ -> (Mem (Lval (Var v, NoOffset)), NoOffset)
+            | _      -> (Var v, NoOffset)
+          in
           let man' = conv man (m, acc_x) in
-          Spec.assign man' (Var v, NoOffset) (Lval (Var tmp, NoOffset))
+          Spec.assign man' lval (Lval (Var tmp, NoOffset))
         ) x vars
     in
-    Spec.D.equal (erase x1 m1) (erase x2 m2)  
+    Spec.D.equal (erase x1 m1) (erase x2 m2)
 
 
   let map man f g =
