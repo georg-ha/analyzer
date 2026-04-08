@@ -990,7 +990,6 @@ module ValueSensitive (Spec: Spec)
   let exitstate v = D.singleton (IntTopSet.top (), Spec.exitstate v)
 
   let map man f g =
-    Printf.printf "%s\n" @@ EnumVarMap.show (get_mappings man);
     let target = find_target man in
     let h (s, x) xs =
       try 
