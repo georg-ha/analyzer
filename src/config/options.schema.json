@@ -353,6 +353,29 @@
           "type": "boolean",
           "default": false
         },
+        "enum_sens": {
+          "title": "ana.enum_sens",
+          "type": "object",
+          "properties": {
+            "strategy": {
+              "title": "ana.enum_sens.strategy",
+              "type": "string",
+              "enum": ["exhaustive", "annotated_only", "default"],
+              "default": "exhaustive"
+            },
+            "activated": {
+              "title": "ana.enum_sens.activated",
+              "type": "boolean",
+              "default": false
+            },
+            "cache": {
+              "title": "ana.enum_sens.cache",
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "additionalProperties": false
+        },
         "path_sens": {
           "title": "ana.path_sens",
           "description": "List of path-sensitive analyses",
