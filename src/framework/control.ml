@@ -21,8 +21,11 @@ let spec_module: (module Spec) Lazy.t = lazy (
   let arg_enabled = get_bool "exp.arg.enabled" in
   let termination_enabled = List.mem "termination" (get_string_list "ana.activated") in (* check if loop termination analysis is enabled*)
   let hashcons_enabled = get_bool "ana.opt.hashcons" in
+  let enum_sens_enabled = get_bool "ana.enum_sens.activated" in
 
-  let value_sens_enabled = get_bool "ana.value_sens" in
+  if enum_sens_enabled && not (get_bool "ana.int.enums") then
+    set_bool "ana.int.enums" true;
+  (* let value_sens_enabled = get_bool "ana.value_sens" in *)
   (* apply functor F on module X if opt is true *)
   let lift opt (module F : S2S) (module X : Spec) = (module (val if opt then (module F (X)) else (module X) : Spec) : Spec) in
   let module S1 =
@@ -36,8 +39,9 @@ let spec_module: (module Spec) Lazy.t = lazy (
       |> lift (get_bool "ana.opt.hashcached") (module HashCachedContextLifter)
       |> lift arg_enabled (module HashconsLifter)
       |> lift arg_enabled (module ArgConstraints.PathSensitive3)
-      |> lift (not arg_enabled && not value_sens_enabled) (module PathSensitive2)
-      |> lift (value_sens_enabled) (module ValueSensitive2)
+      |> lift (not arg_enabled && not enum_sens_enabled) (module PathSensitive2)
+      (* |> lift (value_sens_enabled) (module ValueSensitive) *)
+      |> lift (enum_sens_enabled) (module EnumSensitive.M)
       |> lift (get_bool "ana.dead-code.branches") (module DeadBranchLifter)
       |> lift true (module DeadCodeLifter)
       |> lift (get_bool "dbg.slice.on") (module LevelSliceLifter)
