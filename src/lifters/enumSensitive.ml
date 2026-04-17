@@ -63,7 +63,7 @@ let get_fundec = function
   | MyCFG.Function f | MyCFG.FunctionEntry f -> f
 
 
-let get_enum_vars man = 
+let get_enum_vars fdec = 
   let get_globals ()=  
     let file = !Cilfacade.current_file in
     List.filter_map (function
@@ -71,8 +71,7 @@ let get_enum_vars man =
         | _ -> None
       ) file.globals  
   in
-  let f_dec = get_fundec man.node in
-  f_dec.sformals @ f_dec.slocals @ (get_globals ()) 
+  fdec.sformals @ fdec.slocals @ (get_globals ()) 
   |> List.filter has_enum_type
 
 (* __attribute__((annotate("enum-sensitive"))) *)
@@ -85,16 +84,16 @@ let is_annotated v =
   in List.exists is_enum_sensitive_attribute v.vattr
 
 module type TargetSelection = sig
-  val get: ('d,'g,'c,'v) man -> varinfo list
+  val get: fundec -> varinfo list
 end
 
 module AnnotatedOnly: TargetSelection = struct
-  let get man = List.filter is_annotated (get_enum_vars man)
+  let get fdec = List.filter is_annotated (get_enum_vars fdec)
 end
 
 module ExhaustiveSelection : TargetSelection = struct
-  let get man = 
-    let vars = get_enum_vars man in
+  let get fdec = 
+    let vars = get_enum_vars fdec in
     let annotated_vars = List.filter is_annotated vars in 
     if (not @@ List.is_empty annotated_vars) then 
       annotated_vars 
@@ -114,8 +113,7 @@ module DefaultSelection : TargetSelection = struct
       DoChildren
   end
 
-  let get man =
-    let fdec = get_fundec man.node in
+  let get fdec =
     let mentioned = ref VSet.empty in
 
     (* Helper to run the visitor on an expression and collect results *)
@@ -148,13 +146,12 @@ module Cached (Selection: TargetSelection) : TargetSelection = struct
   (* Use the functions svar.vid as keys. Using the fundec itself causes memory errors *)
   let cache: (int, varinfo list) Hashtbl.t = Hashtbl.create 5
 
-  let get man =
-    let fdec = get_fundec man.node in
+  let get fdec =
     let key = fdec.svar.vid in
     match Hashtbl.find_opt cache key with 
     | Some l -> l
     | None -> 
-      let l = Selection.get man in
+      let l = Selection.get fdec in
       Hashtbl.add cache key l;
       Printf.printf "For %s: Found %d vars\n%!" fdec.svar.vname (List.length l);
       l
@@ -213,7 +210,7 @@ module M (Spec: Spec)
 
   let name () = "ValueSensitive2("^Spec.name ()^")"
   let get_mappings man = 
-    let vars = Targets.get man in
+    let vars = Targets.get (get_fundec man.node) in
     EnumVarMap.empty ()
     |> EnumVarMap.add_list (List.map (fun v -> v, (IntTopSet.get_set man v)) vars)
 
@@ -249,7 +246,7 @@ module M (Spec: Spec)
       if Spec.D.equal (erase x1 m1) (erase x2 m2) then true else false
 
   let map man f g =
-    let vars = Targets.get man in
+    let vars = Targets.get (get_fundec man.node) in
     let h (m, x) xs =
       try
         let man' = convert man (m, x) in
