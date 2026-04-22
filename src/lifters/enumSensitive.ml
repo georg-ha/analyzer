@@ -153,7 +153,6 @@ module Cached (Selection: TargetSelection) : TargetSelection = struct
     | None -> 
       let l = Selection.get fdec in
       Hashtbl.add cache key l;
-      Printf.printf "For %s: Found %d vars\n%!" fdec.svar.vname (List.length l);
       l
 end
 
