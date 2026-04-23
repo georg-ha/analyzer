@@ -156,16 +156,55 @@ module Cached (Selection: TargetSelection) : TargetSelection = struct
       l
 end
 
+module MostUsedSelection : TargetSelection = struct
+  module VMap = Map.Make(CilType.Varinfo)
+
+  class usageCounter (counts: int VMap.t ref) = object
+    inherit nopCilVisitor
+
+    method! vlval (host, _offset) =
+      match host with
+      | Var v when has_enum_type v ->
+        let old_count = VMap.find_opt v !counts |> Option.default 0 in
+        counts := VMap.add v (old_count + 1) !counts;
+        DoChildren
+      | _ -> DoChildren
+  end
+
+  let get fdec =
+    let counts = ref VMap.empty in
+    let visitor = new usageCounter counts in
+
+    ignore (visitCilFunction visitor fdec);
+
+    (* Sort by frequency descending *)
+    let sorted_vars = 
+      VMap.bindings !counts 
+      |> List.sort (fun (_, c1) (_, c2) -> compare c2 c1)
+      |> List.map fst
+    in
+
+    let limit = 2 in
+    List.take limit sorted_vars
+end
+
+module Reference : TargetSelection = struct
+  let get _ = []
+end
+
 let get_strategy () : (module TargetSelection) =
   let m: (module TargetSelection) = match get_string "ana.enum_sens.strategy" with 
     | "exhaustive" -> (module ExhaustiveSelection)
     | "annotated_only" -> (module AnnotatedOnly)
     | "default" -> (module DefaultSelection)
+    | "most_used" -> (module MostUsedSelection)
+    | "reference" -> (module Reference)
     | _ -> assert false
   in if get_bool "ana.enum_sens.cache" then
     let module M = (val m: TargetSelection) in
     (module Cached(M))
   else m
+
 
 
 module M (Spec: Spec)
@@ -181,7 +220,12 @@ module M (Spec: Spec)
 
 
   module D = struct
-    module E = Lattice.Prod (EnumVarMap) (Spec.D)
+    module E = struct
+      include Lattice.Prod (EnumVarMap) (Spec.D)
+
+      let leq (m1, d1) (m2, d2) = Spec.D.leq d1 d2
+    end
+
     module J = SetDomain.Joined (E)
 
     module R = struct
@@ -194,7 +238,14 @@ module M (Spec: Spec)
 
     include DisjointDomain.ProjectiveSet (E) (J) (R)
 
-    let name () = "ValueSensitive"
+    let name () = "EnumSensitive"
+
+    let leq s1 s2 =
+      for_all (fun (_, d1) ->
+          exists (fun (_, d2) ->
+              Spec.D.leq d1 d2
+            ) s2
+        ) s1
 
     let printXml f x =
       let print_one (s, x) =
@@ -207,7 +258,7 @@ module M (Spec: Spec)
 
   module Targets = (val get_strategy ())
 
-  let name () = "ValueSensitive2("^Spec.name ()^")"
+  let name () = "EnumSensitive("^Spec.name ()^")"
   let get_mappings man = 
     let vars = Targets.get (get_fundec man.node) in
     EnumVarMap.empty ()
