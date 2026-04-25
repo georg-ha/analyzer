@@ -360,7 +360,7 @@
             "strategy": {
               "title": "ana.enum_sens.strategy",
               "type": "string",
-              "enum": ["exhaustive", "annotated_only", "default"],
+              "enum": ["exhaustive", "annotated_only", "default", "most_used", "reference"],
               "default": "exhaustive"
             },
             "activated": {
