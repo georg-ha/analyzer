@@ -28,7 +28,7 @@ struct
     | `Top -> top ()
     | `Lifted(x) -> of_opt_list @@ IntDomain.IntDomTuple.to_incl_list x
 end
-
+(* Adapted from src/common/cdomains *)
 module Variables =
 struct
   include CilType.Varinfo
@@ -39,24 +39,30 @@ struct
     else x.vname
   let pretty () x = Pretty.text (show x)
   type group = Global | Local | Parameter | Temp [@@deriving ord, show { with_path = false }]
-  let to_group = function
-    | x when x.vglob -> Global
-    | x when x.vdecl.line = -1 -> Temp
-    | x when Cilfacade.is_varinfo_formal x -> Parameter
-    | _ -> Local
   let name () = "variables"
   let printXml f x = BatPrintf.fprintf f "<value>\n<data>\n%s\n</data>\n</value>\n" (XmlUtil.escape (show x))
+
+  let is_annotated anno v = 
+    let is_enum_sensitive_attribute (Attr(name, params)) = 
+      name = "annotate" && 
+      (List.exists (fun p -> match p with 
+           | AStr(n) -> n = anno
+           | _ -> false) params)
+    in List.exists is_enum_sensitive_attribute v.vattr
+
+  let has_enum_type v =
+    let rec aux = function
+      | TEnum _ -> true
+      | TNamed( x, _ )-> aux x.ttype
+      | TPtr(x, _) -> aux x
+      | _ ->  false 
+    in aux v.vtype
+
 end
 
 module EnumVarMap = MapDomain.MapBot (Variables) (IntTopSet)
 
-let has_enum_type v =
-  let rec aux = function
-    | TEnum _ -> true
-    | TNamed( x, _ )-> aux x.ttype
-    | TPtr(x, _) -> aux x
-    | _ ->  false 
-  in aux v.vtype
+
 
 let get_fundec = function
   | MyCFG.Statement s -> Cilfacade.find_stmt_fundec s
@@ -72,29 +78,20 @@ let get_enum_vars fdec =
       ) file.globals  
   in
   fdec.sformals @ fdec.slocals @ (get_globals ()) 
-  |> List.filter has_enum_type
-
-(* __attribute__((annotate("enum-sensitive"))) *)
-let is_annotated v = 
-  let is_enum_sensitive_attribute (Attr(name, params)) = 
-    name = "annotate" && 
-    (List.exists (fun p -> match p with 
-         | AStr(n) -> n = "enum-sensitive"
-         | _ -> false) params)
-  in List.exists is_enum_sensitive_attribute v.vattr
+  |> List.filter Variables.has_enum_type
 
 module type TargetSelection = sig
   val get: fundec -> varinfo list
 end
 
 module AnnotatedOnly: TargetSelection = struct
-  let get fdec = List.filter is_annotated (get_enum_vars fdec)
+  let get fdec = List.filter (Variables.is_annotated "enum-sensitive") (get_enum_vars fdec) 
 end
 
 module ExhaustiveSelection : TargetSelection = struct
   let get fdec = 
     let vars = get_enum_vars fdec in
-    let annotated_vars = List.filter is_annotated vars in 
+    let annotated_vars = List.filter (Variables.is_annotated "enum-sensitive") vars in 
     if (not @@ List.is_empty annotated_vars) then 
       annotated_vars 
     else
@@ -104,42 +101,21 @@ end
 module DefaultSelection : TargetSelection = struct
   module VSet = Set.Make(CilType.Varinfo)
 
-  class varCollector (found: varinfo list ref) = object
+  class varCollector (mentioned : VSet.t ref) = object
     inherit nopCilVisitor
-    method! vlval lval =
-      (match lval with
-       | (Var v, _) when has_enum_type v -> found := v :: !found
+
+    method! vlval lv =
+      (match lv with
+       | (Var v, _) when Variables.has_enum_type v ->
+         mentioned := VSet.add v !mentioned
        | _ -> ());
       DoChildren
   end
 
   let get fdec =
     let mentioned = ref VSet.empty in
-
-    (* Helper to run the visitor on an expression and collect results *)
-    let collect_from_expr exp =
-      let found = ref [] in
-      ignore (visitCilExpr (new varCollector found) exp);
-      List.iter (fun v -> mentioned := VSet.add v !mentioned) !found
-    in
-
-    List.iter (fun stmt ->
-        match stmt.skind with
-        | If (cond, _, _, _, _) ->
-          collect_from_expr cond
-        (* Collect from function call arguments *)
-        | Instr instrs ->
-          List.iter (fun instr ->
-              match instr with
-              | Call (_, _, args, _, _) ->
-                List.iter collect_from_expr args
-              | _ -> ()
-            ) instrs
-        | _ -> ()
-      ) fdec.sallstmts;
-
-    let result = VSet.elements !mentioned in
-    result
+    ignore (visitCilFunction (new varCollector mentioned) fdec);
+    VSet.elements !mentioned
 end
 
 module Cached (Selection: TargetSelection) : TargetSelection = struct
@@ -156,7 +132,7 @@ module Cached (Selection: TargetSelection) : TargetSelection = struct
       l
 end
 
-module MostUsedSelection : TargetSelection = struct
+module MostUsed : TargetSelection = struct
   module VMap = Map.Make(CilType.Varinfo)
 
   class usageCounter (counts: int VMap.t ref) = object
@@ -164,7 +140,7 @@ module MostUsedSelection : TargetSelection = struct
 
     method! vlval (host, _offset) =
       match host with
-      | Var v when has_enum_type v ->
+      | Var v when Variables.has_enum_type v ->
         let old_count = VMap.find_opt v !counts |> Option.default 0 in
         counts := VMap.add v (old_count + 1) !counts;
         DoChildren
@@ -184,7 +160,7 @@ module MostUsedSelection : TargetSelection = struct
       |> List.map fst
     in
 
-    let limit = 2 in
+    let limit = get_int "ana.enum_sens.max_vars" in
     List.take limit sorted_vars
 end
 
@@ -197,7 +173,7 @@ let get_strategy () : (module TargetSelection) =
     | "exhaustive" -> (module ExhaustiveSelection)
     | "annotated_only" -> (module AnnotatedOnly)
     | "default" -> (module DefaultSelection)
-    | "most_used" -> (module MostUsedSelection)
+    | "most_used" -> (module MostUsed)
     | "reference" -> (module Reference)
     | _ -> assert false
   in if get_bool "ana.enum_sens.cache" then
