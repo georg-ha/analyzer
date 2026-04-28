@@ -360,7 +360,7 @@
             "strategy": {
               "title": "ana.enum_sens.strategy",
               "type": "string",
-              "enum": ["exhaustive", "annotated_only", "default", "most_used", "reference"],
+              "enum": ["exhaustive", "annotated_only", "default", "most_used"],
               "default": "exhaustive"
             },
             "activated": {
@@ -372,6 +372,11 @@
               "title": "ana.enum_sens.cache",
               "type": "boolean",
               "default": false
+            },
+            "max_vars": {
+              "title": "ana.enum_sens.max_vars",
+              "type": "integer",
+              "default": 5
             }
           },
           "additionalProperties": false
