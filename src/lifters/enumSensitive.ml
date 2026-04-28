@@ -38,7 +38,6 @@ struct
       "(" ^ x.vname ^ ", " ^ description ^ ")"
     else x.vname
   let pretty () x = Pretty.text (show x)
-  type group = Global | Local | Parameter | Temp [@@deriving ord, show { with_path = false }]
   let name () = "variables"
   let printXml f x = BatPrintf.fprintf f "<value>\n<data>\n%s\n</data>\n</value>\n" (XmlUtil.escape (show x))
 
@@ -61,8 +60,6 @@ struct
 end
 
 module EnumVarMap = MapDomain.MapBot (Variables) (IntTopSet)
-
-
 
 let get_fundec = function
   | MyCFG.Statement s -> Cilfacade.find_stmt_fundec s
@@ -150,7 +147,6 @@ module MostUsed : TargetSelection = struct
   let get fdec =
     let counts = ref VMap.empty in
     let visitor = new usageCounter counts in
-
     ignore (visitCilFunction visitor fdec);
 
     (* Sort by frequency descending *)
@@ -164,23 +160,17 @@ module MostUsed : TargetSelection = struct
     List.take limit sorted_vars
 end
 
-module Reference : TargetSelection = struct
-  let get _ = []
-end
-
 let get_strategy () : (module TargetSelection) =
   let m: (module TargetSelection) = match get_string "ana.enum_sens.strategy" with 
     | "exhaustive" -> (module ExhaustiveSelection)
     | "annotated_only" -> (module AnnotatedOnly)
     | "default" -> (module DefaultSelection)
     | "most_used" -> (module MostUsed)
-    | "reference" -> (module Reference)
     | _ -> assert false
   in if get_bool "ana.enum_sens.cache" then
     let module M = (val m: TargetSelection) in
     (module Cached(M))
   else m
-
 
 
 module M (Spec: Spec)
