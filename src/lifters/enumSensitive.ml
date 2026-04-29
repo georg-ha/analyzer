@@ -85,7 +85,7 @@ module AnnotatedOnly: TargetSelection = struct
   let get fdec = List.filter (Variables.is_annotated "enum-sensitive") (get_enum_vars fdec) 
 end
 
-module ExhaustiveSelection : TargetSelection = struct
+module Exhaustive : TargetSelection = struct
   let get fdec = 
     let vars = get_enum_vars fdec in
     let annotated_vars = List.filter (Variables.is_annotated "enum-sensitive") vars in 
@@ -95,7 +95,7 @@ module ExhaustiveSelection : TargetSelection = struct
       vars
 end
 
-module DefaultSelection : TargetSelection = struct
+module AllUsed : TargetSelection = struct
   module VSet = Set.Make(CilType.Varinfo)
 
   class varCollector (mentioned : VSet.t ref) = object
@@ -162,9 +162,9 @@ end
 
 let get_strategy () : (module TargetSelection) =
   let m: (module TargetSelection) = match get_string "ana.enum_sens.strategy" with 
-    | "exhaustive" -> (module ExhaustiveSelection)
+    | "exhaustive" -> (module Exhaustive)
     | "annotated_only" -> (module AnnotatedOnly)
-    | "default" -> (module DefaultSelection)
+    | "all_used" -> (module AllUsed)
     | "most_used" -> (module MostUsed)
     | _ -> assert false
   in if get_bool "ana.enum_sens.cache" then
@@ -206,6 +206,7 @@ module M (Spec: Spec)
 
     let name () = "EnumSensitive"
 
+    (* For every d1 in s1, there exists some d2 in s2 such that Spec.D.leq d1 d2 *)
     let leq s1 s2 =
       for_all (fun (_, d1) ->
           exists (fun (_, d2) ->
@@ -362,6 +363,7 @@ module M (Spec: Spec)
     |> List.map D.singleton
 
   let combine_env man l fe f a fc d f_ask =
+    Printf.printf "Comb env\n";
     assert (D.cardinal man.local = 1);
     let (m, cd) = D.choose man.local in
     let k (callee_m, x) y =
