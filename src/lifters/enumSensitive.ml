@@ -363,7 +363,6 @@ module M (Spec: Spec)
     |> List.map D.singleton
 
   let combine_env man l fe f a fc d f_ask =
-    Printf.printf "Comb env\n";
     assert (D.cardinal man.local = 1);
     let (m, cd) = D.choose man.local in
     let k (callee_m, x) y =
