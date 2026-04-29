@@ -40,7 +40,6 @@ let spec_module: (module Spec) Lazy.t = lazy (
       |> lift arg_enabled (module HashconsLifter)
       |> lift arg_enabled (module ArgConstraints.PathSensitive3)
       |> lift (not arg_enabled && not enum_sens_enabled) (module PathSensitive2)
-      (* |> lift (value_sens_enabled) (module ValueSensitive) *)
       |> lift (enum_sens_enabled) (module EnumSensitive.M)
       |> lift (get_bool "ana.dead-code.branches") (module DeadBranchLifter)
       |> lift true (module DeadCodeLifter)
@@ -604,6 +603,7 @@ struct
           lh, gh
         )
       in
+      (* TODO *)
 
       if get_string "comparesolver" <> "" then (
         let compare_with (module S2 : DemandEqIncrSolver) =
