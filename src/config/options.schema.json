@@ -361,7 +361,7 @@
               "title": "ana.enum_sens.strategy",
               "type": "string",
               "enum": ["exhaustive", "annotated_only", "all_used", "most_used"],
-              "default": "default"
+              "default": "all_used"
             },
             "activated": {
               "title": "ana.enum_sens.activated",
