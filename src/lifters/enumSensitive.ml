@@ -204,7 +204,7 @@ module M (Spec: Spec)
 
     let name () = "EnumSensitive"
 
-    let leq x y =
+    (* let leq x y =
       if is_bot x then true
       else if is_top y then true
       else
@@ -212,7 +212,7 @@ module M (Spec: Spec)
             exists (fun (_, y_spec) ->
                 Spec.D.leq x_spec y_spec
               ) y
-          ) x
+          ) x *)
 
     let printXml f x =
       let print_one (s, x) =
