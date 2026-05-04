@@ -170,8 +170,6 @@ let get_strategy () : (module TargetSelection) =
     (module Cached(M))
   else m
 
-module Targets = (val get_strategy ())
-
 
 module EnumVarMap = MapDomain.MapBot (Variables) (IntTopSet)
 
