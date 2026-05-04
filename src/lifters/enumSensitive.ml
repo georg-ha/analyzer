@@ -59,8 +59,6 @@ struct
 
 end
 
-module EnumVarMap = MapDomain.MapBot (Variables) (IntTopSet)
-
 let get_fundec = function
   | MyCFG.Statement s -> Cilfacade.find_stmt_fundec s
   | MyCFG.Function f | MyCFG.FunctionEntry f -> f
@@ -172,6 +170,10 @@ let get_strategy () : (module TargetSelection) =
     (module Cached(M))
   else m
 
+module Targets = (val get_strategy ())
+
+
+module EnumVarMap = MapDomain.MapBot (Variables) (IntTopSet)
 
 module M (Spec: Spec)
   : Spec
@@ -186,11 +188,7 @@ module M (Spec: Spec)
 
 
   module D = struct
-    module E = struct
-      include Lattice.Prod (EnumVarMap) (Spec.D)
-
-      let leq (m1, d1) (m2, d2) = Spec.D.leq d1 d2
-    end
+    module E = Lattice.Prod (EnumVarMap) (Spec.D)
 
     module J = SetDomain.Joined (E)
 
@@ -206,13 +204,15 @@ module M (Spec: Spec)
 
     let name () = "EnumSensitive"
 
-    (* For every d1 in s1, there exists some d2 in s2 such that Spec.D.leq d1 d2 *)
-    let leq s1 s2 =
-      for_all (fun (_, d1) ->
-          exists (fun (_, d2) ->
-              Spec.D.leq d1 d2
-            ) s2
-        ) s1
+    let leq x y =
+      if is_bot x then true
+      else if is_top y then true
+      else
+        for_all (fun (_, x_spec) ->
+            exists (fun (_, y_spec) ->
+                Spec.D.leq x_spec y_spec
+              ) y
+          ) x
 
     let printXml f x =
       let print_one (s, x) =
@@ -223,9 +223,10 @@ module M (Spec: Spec)
       iter print_one x
   end
 
+  let name () = "EnumSensitive("^Spec.name ()^")"
+
   module Targets = (val get_strategy ())
 
-  let name () = "EnumSensitive("^Spec.name ()^")"
   let get_mappings man = 
     let vars = Targets.get (get_fundec man.node) in
     EnumVarMap.empty ()
@@ -238,6 +239,10 @@ module M (Spec: Spec)
     in
     man'
 
+  (* For each Target Variable, a temporary variable of the same type is created.
+     Assigning this variable to the target effectively sets our target to top, allowing us to check wheter the rest of the Domain is equal.
+     This is neccessary because the IntDomain is always contained in the Functor Parameter Spec. 
+  *)
   let equal_except_targets man vars (m1, x1) (m2, x2) =
     let same_keys =
       List.for_all (fun v ->
@@ -314,7 +319,7 @@ module M (Spec: Spec)
 
   let context man fd l =
     if D.cardinal l <> 1 then
-      failwith "ValueSensitive2.context must be called with a singleton set."
+      failwith "EnumSensitive.context must be called with a singleton set."
     else
       let (_, x) as el = D.choose l in
       Spec.context (convert man el) fd x
@@ -364,28 +369,26 @@ module M (Spec: Spec)
 
   let combine_env man l fe f a fc d f_ask =
     assert (D.cardinal man.local = 1);
-    let (m, cd) = D.choose man.local in
-    let k (callee_m, x) y =
+    let (cm, cd) = D.choose man.local in
+    let k (m, x) y =
       try
-        let r = Spec.combine_env (convert man (m, cd)) l fe f a fc x f_ask in
-        (* Recompute the enum map from the combined result state,
-           but also bring in callee's enum knowledge *)
-        let merged_m = EnumVarMap.join m callee_m in
-        D.add (merged_m, r) y
-      with Deadcode -> y
+        let r = Spec.combine_env (convert man (cm, cd)) l fe f a fc x f_ask in
+        D.add (m, r) y
+      with Deadcode ->
+        y
     in
     let d = D.fold k d (D.bot ()) in
     if D.is_bot d then raise Deadcode else d
 
   let combine_assign man l fe f a fc d f_ask =
     assert (D.cardinal man.local = 1);
-    let (m, cd) = D.choose man.local in
-    let k (callee_m, x) y =
+    let (cm, cd) = D.choose man.local in
+    let k (m, x) y =
       try
-        let r = Spec.combine_assign (convert man (m, cd)) l fe f a fc x f_ask in
-        let merged_m = EnumVarMap.join m callee_m in
-        D.add (merged_m, r) y
-      with Deadcode -> y
+        let r = Spec.combine_assign (convert man (cm, cd)) l fe f a fc x f_ask in
+        D.add (m, r) y
+      with Deadcode ->
+        y
     in
     let d = D.fold k d (D.bot ()) in
     if D.is_bot d then raise Deadcode else d
