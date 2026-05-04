@@ -114,7 +114,7 @@ module AllUsed : TargetSelection = struct
 end
 
 module Cached (Selection: TargetSelection) : TargetSelection = struct
-  (* Use the functions svar.vid as keys. Using the fundec itself causes memory errors *)
+  (* Use the functions svar.vid as keys. Using the fundec itself causes errors *)
   let cache: (int, varinfo list) Hashtbl.t = Hashtbl.create 5
 
   let get fdec =
@@ -158,6 +158,7 @@ module MostUsed : TargetSelection = struct
     List.take limit sorted_vars
 end
 
+(* assert false is unreachable *)
 let get_strategy () : (module TargetSelection) =
   let m: (module TargetSelection) = match get_string "ana.enum_sens.strategy" with 
     | "exhaustive" -> (module Exhaustive)
