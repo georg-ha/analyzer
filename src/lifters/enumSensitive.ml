@@ -28,6 +28,7 @@ struct
     | `Top -> top ()
     | `Lifted(x) -> of_opt_list @@ IntDomain.IntDomTuple.to_incl_list x
 end
+
 (* Adapted from src/common/cdomains *)
 module Variables =
 struct
@@ -56,7 +57,6 @@ struct
       | TPtr(x, _) -> aux x
       | _ ->  false 
     in aux v.vtype
-
 end
 
 let get_fundec = function
@@ -204,16 +204,6 @@ module M (Spec: Spec)
 
     let name () = "EnumSensitive"
 
-    (* let leq x y =
-      if is_bot x then true
-      else if is_top y then true
-      else
-        for_all (fun (_, x_spec) ->
-            exists (fun (_, y_spec) ->
-                Spec.D.leq x_spec y_spec
-              ) y
-          ) x *)
-
     let printXml f x =
       let print_one (s, x) =
         BatPrintf.fprintf f "\n<path>%a%a</path>" 
@@ -244,14 +234,6 @@ module M (Spec: Spec)
      This is neccessary because the IntDomain is always contained in the Functor Parameter Spec. 
   *)
   let equal_except_targets man vars (m1, x1) (m2, x2) =
-    let same_keys =
-      List.for_all (fun v ->
-          match EnumVarMap.find_opt v m1, EnumVarMap.find_opt v m2 with
-          | None, None | Some _, Some _ -> true
-          | _ -> false   
-        ) vars
-    in if not same_keys then false
-    else
       let erase x m =
         List.fold_left (fun acc_x v ->
             let tmp = Cil.makeVarinfo false "valsens2_typ" 
