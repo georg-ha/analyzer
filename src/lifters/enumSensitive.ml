@@ -226,20 +226,20 @@ module M (Spec: Spec)
      This is neccessary because the IntDomain is always contained in the Functor Parameter Spec. 
   *)
   let equal_except_targets man vars (m1, x1) (m2, x2) =
-      let erase x m =
-        List.fold_left (fun acc_x v ->
-            let tmp = Cil.makeVarinfo false "valsens2_typ" 
-                (match v.vtype with TPtr(t,_) | t -> t)
-            in
-            let lval = match v.vtype with
-              | TPtr _ -> (Mem (Lval (Var v, NoOffset)), NoOffset)
-              | _      -> (Var v, NoOffset)
-            in
-            let man' = convert man (m, acc_x) in
-            Spec.assign man' lval (Lval (Var tmp, NoOffset))
-          ) x vars
-      in
-      if Spec.D.equal (erase x1 m1) (erase x2 m2) then true else false
+    let erase x m =
+      List.fold_left (fun acc_x v ->
+          let tmp = Cil.makeVarinfo false "valsens2_typ" 
+              (match v.vtype with TPtr(t,_) | t -> t)
+          in
+          let lval = match v.vtype with
+            | TPtr _ -> (Mem (Lval (Var v, NoOffset)), NoOffset)
+            | _      -> (Var v, NoOffset)
+          in
+          let man' = convert man (m, acc_x) in
+          Spec.assign man' lval (Lval (Var tmp, NoOffset))
+        ) x vars
+    in
+    if Spec.D.equal (erase x1 m1) (erase x2 m2) then true else false
 
   let map man f g =
     let vars = Targets.get (get_fundec man.node) in
