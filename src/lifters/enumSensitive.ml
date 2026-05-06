@@ -63,15 +63,14 @@ let get_fundec = function
   | MyCFG.Statement s -> Cilfacade.find_stmt_fundec s
   | MyCFG.Function f | MyCFG.FunctionEntry f -> f
 
+let get_globals ()=  
+  let file = !Cilfacade.current_file in
+  List.filter_map (function
+      | GVar (v, _, _) | GVarDecl (v, _) -> Some v
+      | _ -> None
+    ) file.globals  
 
 let get_enum_vars fdec = 
-  let get_globals ()=  
-    let file = !Cilfacade.current_file in
-    List.filter_map (function
-        | GVar (v, _, _) | GVarDecl (v, _) -> Some v
-        | _ -> None
-      ) file.globals  
-  in
   fdec.sformals @ fdec.slocals @ (get_globals ()) 
   |> List.filter Variables.has_enum_type
 
@@ -84,13 +83,7 @@ module AnnotatedOnly: TargetSelection = struct
 end
 
 module Exhaustive : TargetSelection = struct
-  let get fdec = 
-    let vars = get_enum_vars fdec in
-    let annotated_vars = List.filter (Variables.is_annotated "enum-sensitive") vars in 
-    if (not @@ List.is_empty annotated_vars) then 
-      annotated_vars 
-    else
-      vars
+  let get = get_enum_vars 
 end
 
 module AllUsed : TargetSelection = struct
