@@ -1,0 +1,59 @@
+{
+  "ana": {
+    "sv-comp": {
+      "enabled": true,
+      "functions": true
+    },
+    "int": {
+      "def_exc": true,
+      "enums": true,
+      "interval": true
+    },
+    "float": {
+        "interval": true
+    },
+    "activated": [
+      "base",
+      "threadid",
+      "threadflag",
+      "threadreturn",
+      "mallocWrapper",
+      "mutexEvents",
+      "mutex",
+      "access",
+      "race",
+      "escape",
+      "expRelation",
+      "mhp",
+      "assert",
+      "pthreadMutexType",
+      "symb_locks",
+      "region",
+      "thread"
+    ],
+    "base": {
+      "arrays": {
+        "domain": "partitioned"
+      }
+    }
+  }, "witness": {
+    "yaml": {
+      "enabled": true,
+      "sv-comp-true-only": false,
+      "format-version": "2.0",
+      "entry-types": [
+        "invariant_set"
+      ],
+      "invariant-types": [
+        "loop_invariant"
+      ]
+    },
+    "invariant": {
+      "loop-head": true,
+      "after-lock": false,
+      "other": false,
+      "accessed": false,
+      "exact": true
+    }
+  }
+}

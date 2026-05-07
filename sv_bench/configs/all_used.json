@@ -1,0 +1,9 @@
+{
+    "ana": {
+        "enum_sens": {
+            "activated": true,
+            "strategy": "all_used",
+            "cache": true
+        }
+    }
+}

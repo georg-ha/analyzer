@@ -1,0 +1,17 @@
+timeout: 120
+goblint: ../goblint
+sv_benchmarks: ../../sv-benchmarks/c
+
+base_configs:
+  - configs/base_conf.json
+
+configs:
+  - configs/deactivated.json
+  - configs/path_sens.json
+  - configs/all_used.json
+  - configs/exhaustive.json
+  - configs/most_used2.json
+
+tasks:
+  - ../../sv-benchmarks/c/ldv-linux-3.4-simple/*.yml
+  - ../../sv-benchmarks/c//intel-tdx-module/*.yml

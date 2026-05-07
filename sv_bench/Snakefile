@@ -1,0 +1,171 @@
+import csv
+import glob
+import json
+import yaml
+from pathlib import Path
+
+
+# ── Load bench config ────────────────────────────────────────────────────────
+
+with open("bench.yaml") as f:
+    BENCH = yaml.safe_load(f)
+
+TIMEOUT   = BENCH.get("timeout", 60)
+GOBLINT   = str(Path(BENCH["goblint"]).resolve())
+SV_BENCH  = Path(BENCH["sv_benchmarks"]).resolve()
+
+_raw_base = BENCH.get("base_configs", BENCH.get("base_config"))
+if _raw_base is None:
+    BASE_CONFIGS = []
+elif isinstance(_raw_base, str):
+    BASE_CONFIGS = [Path(_raw_base).resolve()]
+else:
+    BASE_CONFIGS = [Path(p).resolve() for p in _raw_base]
+
+def _expand_set(set_file):
+    """Expand a .set file into (resolved_path, set_name) pairs."""
+    set_file = Path(set_file).resolve()
+    base = set_file.parent
+    set_name = set_file.stem
+    pairs = []
+    for line in set_file.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        for m in sorted(glob.glob(str(base / line), recursive=True)):
+            pairs.append((Path(m).resolve(), set_name))
+    return pairs
+
+def _expand(patterns):
+    """Return (paths, sources) where sources maps each path to its origin set names."""
+    sources = {}  # path -> list[str], preserving insertion order of set names
+    paths = []
+    for pat in patterns:
+        matches = sorted(glob.glob(pat, recursive=True)) or [pat]
+        for m in matches:
+            p = Path(m).resolve()
+            if p.suffix == ".set":
+                for c, set_name in _expand_set(p):
+                    sources.setdefault(c, [])
+                    if set_name not in sources[c]:
+                        sources[c].append(set_name)
+                    if c not in paths:
+                        paths.append(c)
+            else:
+                sources.setdefault(p, [])
+                if p not in paths:
+                    paths.append(p)
+    return paths, sources
+
+CONFIGS, _            = _expand(BENCH["configs"])
+TASK_FILES, TASK_SOURCES = _expand(BENCH["tasks"])
+
+
+# ── Prevent yaml from coercing bare true/false ───────────────────────────────
+
+class _Loader(yaml.SafeLoader):
+    pass
+_Loader.add_constructor(
+    "tag:yaml.org,2002:bool",
+    lambda loader, node: loader.construct_scalar(node),
+)
+
+
+# ── Enumerate (config, task_key, property, property_file, expected) triples ──
+
+def encode_task_key(task_file):
+    try:
+        return str(task_file.relative_to(SV_BENCH)).replace("/", "__")
+    except ValueError:
+        return str(task_file).replace("/", "__")
+
+def decode_task_key(key):
+    return SV_BENCH / key.replace("__", "/")
+
+
+RUNS = []  # list of dicts with all info needed to build paths and commands
+
+_base_iter = BASE_CONFIGS if BASE_CONFIGS else [None]
+
+for base_cfg in _base_iter:
+    for cfg in CONFIGS:
+        run_id = f"{base_cfg.stem}__{cfg.stem}" if base_cfg else cfg.stem
+        for task_file in TASK_FILES:
+            with task_file.open() as f:
+                task = yaml.load(f, Loader=_Loader)
+            for prop in task.get("properties", []):
+                if "expected_verdict" not in prop:
+                    continue
+                prop_file = (task_file.parent / prop["property_file"]).resolve()
+                RUNS.append({
+                    "run_id":        run_id,
+                    "base_cfg_path": base_cfg,
+                    "cfg_path":      cfg,
+                    "task_key":      encode_task_key(task_file),
+                    "task_path":     task_file,
+                    "property":      prop_file.stem,
+                    "prop_path":     prop_file,
+                    "expected":      str(prop["expected_verdict"]).lower(),
+                    "sources":       "|".join(TASK_SOURCES.get(task_file, [])),
+                })
+
+ALL_OUTPUTS = [
+    f"results/{r['run_id']}/{r['task_key']}/{r['property']}.json"
+    for r in RUNS
+]
+
+# Index for quick lookup in rule run_one
+RUN_INDEX = {
+    (r["run_id"], r["task_key"], r["property"]): r
+    for r in RUNS
+}
+
+
+# ── Rules ────────────────────────────────────────────────────────────────────
+
+rule all:
+    input: "results/combined.csv"
+
+
+rule aggregate:
+    input:  ALL_OUTPUTS
+    output: "results/combined.csv"
+    run:
+        fieldnames = ["base_config", "config", "task", "property", "expected",
+                      "returned", "timeout", "runtime", "solver_walltime", "rhs_evals", "sources"]
+        with open(output[0], "w", newline="") as fh:
+            writer = csv.DictWriter(fh, fieldnames=fieldnames)
+            writer.writeheader()
+            for path in input:
+                row = json.loads(Path(path).read_text())
+                writer.writerow({k: row[k] for k in fieldnames})
+
+
+rule run_one:
+    output: "results/{run_id}/{task_key}/{property}.json"
+    run:
+        r = RUN_INDEX[(wildcards.run_id, wildcards.task_key, wildcards.property)]
+        base_args = (f"--base-config {r['base_cfg_path']}" if r["base_cfg_path"] else "")
+        shell(
+            "python run_one.py"
+            " --goblint {goblint}"
+            " {base_args}"
+            " --config {cfg}"
+            " --task {task}"
+            " --property-file {prop}"
+            " --expected {expected}"
+            " --sv-benchmarks {svb}"
+            " --timeout {timeout}"
+            " --sources '{sources}'"
+            " --output {out}",
+            goblint=GOBLINT,
+            base_args=base_args,
+            cfg=r["cfg_path"],
+            task=r["task_path"],
+            prop=r["prop_path"],
+            expected=r["expected"],
+            svb=SV_BENCH,
+            timeout=TIMEOUT,
+            sources=r["sources"],
+            out=output[0],
+        )

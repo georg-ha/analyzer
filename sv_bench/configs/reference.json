@@ -1,0 +1,9 @@
+{
+    "ana": {
+        "enum_sens": {
+           "activated": true,
+           "strategy": "most_used",
+           "max_vars": 0
+        }
+    }
+}
